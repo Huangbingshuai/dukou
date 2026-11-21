@@ -8,11 +8,13 @@
  *
  *  - in-process: a promise chain, so two requests in this server queue up;
  *  - cross-process: an exclusive lock file, so `src/cli.ts sync` cannot race the
- *    running server.
+ *    running server. Dead process locks are removed immediately; an aged lock
+ *    with an unknown owner is removed after `STALE_MS`. Live owners are never
+ *    displaced just because a large sync runs longer than the age threshold.
  *
- * The file lock is best-effort: a crashed writer leaves it behind, and after
- * `STALE_MS` the next caller takes it over. Waiting is bounded; if a healthy
- * writer holds it, callers get a clear error instead of writing concurrently.
+ * A crashed writer's PID lets the next caller release the lock immediately.
+ * Waiting is bounded; if a healthy writer holds it, callers get a clear error
+ * instead of writing concurrently.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -48,7 +50,20 @@ async function withFileLock<T>(groupId: string, fn: () => Promise<T>, timeoutMs:
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
       try {
         const stat = fs.statSync(file);
-        if (Date.now() - stat.mtimeMs > STALE_MS) {
+        const pid = Number(fs.readFileSync(file, 'utf8').trim());
+        let ownerAlive = false;
+        if (Number.isInteger(pid) && pid > 0) {
+          try {
+            process.kill(pid, 0);
+            ownerAlive = true;
+          } catch (ownerError) {
+            // EPERM still means the process exists; only ESRCH proves it is dead.
+            ownerAlive = (ownerError as NodeJS.ErrnoException).code !== 'ESRCH';
+          }
+        }
+        const ownerKnownDead = Number.isInteger(pid) && pid > 0 && !ownerAlive;
+        const ownerUnknownAndStale = !(Number.isInteger(pid) && pid > 0) && Date.now() - stat.mtimeMs > STALE_MS;
+        if (ownerKnownDead || ownerUnknownAndStale) {
           fs.rmSync(file, { force: true });
           continue;
         }

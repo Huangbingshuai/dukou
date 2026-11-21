@@ -22,6 +22,7 @@ import { writeClaude } from '../src/writers/claude.ts';
 import { mirrorConversation } from '../src/mirror.ts';
 import { syncGroups } from '../src/groups.ts';
 import { Ledger } from '../src/ledger.ts';
+import { withGroupLock } from '../src/lock.ts';
 import { buildTranscript } from '../web/transcript.ts';
 
 const ROOT = '/tmp/sm-regression';
@@ -333,8 +334,39 @@ async function testRealGroup(): Promise<void> {
   }
 }
 
+async function testGroupLocks(): Promise<void> {
+  const previousHome = process.env.DSH_HOME;
+  const dsh = home('lock');
+  process.env.DSH_HOME = dsh;
+  const dir = path.join(dsh, 'migration-ledgers', '.locks');
+  fs.mkdirSync(dir, { recursive: true });
+  const groupId = 'lock-regression';
+  const lock = path.join(dir, `${groupId}.lock`);
+  let ran = false;
+  try {
+    fs.writeFileSync(lock, `${process.pid}\n`);
+    const old = new Date(Date.now() - 600_000);
+    fs.utimesSync(lock, old, old);
+    let rejected = false;
+    try {
+      await withGroupLock(groupId, async () => { ran = true; }, { timeoutMs: 250 });
+    } catch {
+      rejected = true;
+    }
+    check('aged lock from a live process is never stolen', rejected && !ran && fs.existsSync(lock));
+
+    fs.writeFileSync(lock, '2147483647\n');
+    const result = await withGroupLock(groupId, async () => 'acquired', { timeoutMs: 250 });
+    check('lock from a dead process is released', result === 'acquired' && !fs.existsSync(lock));
+  } finally {
+    if (previousHome === undefined) delete process.env.DSH_HOME;
+    else process.env.DSH_HOME = previousHome;
+  }
+}
+
 const which = process.argv[2] ?? 'all';
 try {
+  if (which === 'all' || which === 'locks') await testGroupLocks();
   if (which === 'all' || which === 'roundtrip') await testRoundTrip();
   if (which === 'all' || which === 'schema') testSchemaRefusal();
   if (which === 'all' || which === 'zstd') testZstdFrames();
