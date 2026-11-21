@@ -1,0 +1,20 @@
+{
+  "name": "dukou",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "渡口 — 让同一段对话在任意 AI 工具之间来往",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "list": "node src/cli.ts list",
+    "dump": "node src/cli.ts dump",
+    "check": "node --experimental-strip-types --check src/cli.ts",
+    "doctor": "node src/cli.ts doctor",
+    "regression": "node scripts/regression.ts",
+    "accept": "sh scripts/accept.sh",
+    "web": "sh scripts/web.sh",
+    "web-browser": "node scripts/web-browser-test.ts"
+  }
+}

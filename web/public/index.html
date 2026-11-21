@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>渡口 · Dukou</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="sidebar-top">
+          <button type="button" class="tool-switch" id="tool-switch" aria-haspopup="menu" aria-expanded="false">
+            <span class="tool-mark" id="tool-mark"></span>
+            <span class="tool-label" id="tool-label">—</span>
+            <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button type="button" class="icon-btn" id="refresh" title="重新扫描" aria-label="重新扫描">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4.5V10h-5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+
+        <div class="menu" id="tool-menu" role="menu" hidden></div>
+
+        <div class="search-row">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.4" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M16 16l4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <input id="search" type="search" placeholder="搜索对话" autocomplete="off" />
+        </div>
+
+        <div class="tree" id="tree"></div>
+
+        <div class="sidebar-foot">
+          <span id="foot-summary">—</span>
+        </div>
+      </aside>
+
+      <main class="pane" id="pane">
+        <div class="welcome" id="welcome">
+          <div class="welcome-mark">
+            <svg viewBox="0 0 32 32" aria-hidden="true">
+              <circle cx="16" cy="16" r="12.5" fill="none" stroke="currentColor" stroke-width="1.1" />
+              <path d="M3.5 19.5c3.2 0 3.2-2.2 6.4-2.2s3.2 2.2 6.4 2.2 3.2-2.2 6.4-2.2 3.2 2.2 6.4 2.2" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" />
+              <circle cx="16" cy="10.2" r="1.5" fill="currentColor" />
+            </svg>
+          </div>
+          <h1>渡口</h1>
+          <p class="welcome-sub">让同一段对话，在任意工具之间来往</p>
+          <p class="welcome-hint">从左侧选一段对话，或按 <kbd>/</kbd> 搜索。</p>
+        </div>
+
+        <article class="thread" id="thread" hidden>
+          <header class="thread-head">
+            <div class="thread-title-row">
+              <h2 id="thread-title">—</h2>
+              <div class="thread-tools" id="thread-tools"></div>
+            </div>
+            <p class="thread-meta"><span id="thread-meta"></span><span id="thread-project"></span></p>
+          </header>
+          <div class="transcript" id="transcript"></div>
+        </article>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

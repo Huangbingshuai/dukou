@@ -1,0 +1,5 @@
+.DS_Store
+.codebase-memory/
+
+# Local validation snapshots can contain private chat content and machine paths.
+docs/screenshots/
