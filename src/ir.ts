@@ -1,12 +1,12 @@
 /**
  * The intermediate representation every adapter reads into and writes from.
  *
- * Design rule: the IR only holds what all three harnesses can express natively.
+ * Design rule: the IR only holds what the participating harnesses can express natively.
  * Anything a target cannot represent is reported by the writer as a loss note,
  * never silently dropped.
  */
 
-export type Origin = 'codex' | 'claude' | 'dsh';
+export type Origin = 'codex' | 'claude' | 'dsh' | 'kimi' | 'zcode';
 
 export type Role = 'user' | 'assistant' | 'tool' | 'system';
 
@@ -111,10 +111,10 @@ export function summarizeBlocks(blocks: Block[]): string {
 /**
  * One message per block.
  *
- * The three harnesses disagree about grouping: DSH emits a text event plus a
+ * Harnesses disagree about grouping: DSH emits a text event plus a
  * separate `tool/call` event, Codex emits one `response_item` per item, and
  * Claude packs text + `tool_use` into one row. Mirroring the native grouping
- * would make the three replicas differ forever, so every writer and every diff
+ * would make replicas differ forever, so every writer and every diff
  * runs on this canonical shape. Order, timestamps and content are preserved.
  */
 export function canonicalize(messages: Message[]): Message[] {

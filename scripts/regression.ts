@@ -253,6 +253,52 @@ async function testRoundTrip(): Promise<void> {
   check('real Claude → Codex migration retained question, answer and tool-result images', codexImages.length === 2 && codexImages[0].role === 'user' && codexImages[1].role === 'assistant' && codexImages.every((message) => message.blocks[0]?.type === 'image' && message.blocks[0].data && sha256(message.blocks[0].data) === sha256(PNG)) && codexToolResult?.type === 'toolResult' && codexToolResult.images?.length === 1 && codexToolResult.images[0].data && sha256(codexToolResult.images[0].data) === sha256(PNG));
 }
 
+async function testCodexToolSummaryDoesNotHideAnswer(): Promise<void> {
+  const stores = freshStores();
+  const previousMode = process.env.SESSION_MIRROR_CODEX_TOOLS;
+  process.env.SESSION_MIRROR_CODEX_TOOLS = 'summary';
+  try {
+    const now = Date.now();
+    const conversation: Conversation = {
+      ...sampleConversation(),
+      createdAt: now,
+      messages: [
+        { id: 'summary-user', role: 'user', time: now, blocks: [{ type: 'text', text: '请检查项目。' }] },
+        { id: 'summary-call', role: 'assistant', time: now + 1, blocks: [{ type: 'toolCall', callId: 'summary-call', name: 'bash', input: '{}' }] },
+        { id: 'summary-result', role: 'tool', time: now + 2, blocks: [{ type: 'toolResult', callId: 'summary-call', output: 'done' }] },
+        { id: 'summary-answer', role: 'assistant', time: now + 3, blocks: [{ type: 'text', text: '这是完整的实际回答。' }] },
+      ],
+    };
+    const result = writeCodex(conversation, { home: stores.codex, backupDir: path.join(stores.codex, 'bak') });
+    const rows = fs.readFileSync(result.path, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as Record<string, any>);
+    const agentItems = rows.flatMap((row, index) => {
+      const payload = row.payload as Record<string, any> | undefined;
+      const item = payload?.item as Record<string, any> | undefined;
+      if (row.type !== 'event_msg' || payload?.type !== 'item_completed' || item?.type !== 'AgentMessage') return [];
+      const text = (item.content as Array<Record<string, unknown>> | undefined)?.map((block) => String(block.text ?? '')).join('') ?? '';
+      return [{ index, text }];
+    });
+    const summaryIndex = agentItems.find((item) => item.text.startsWith('（执行了'))?.index ?? -1;
+    const answerIndex = agentItems.find((item) => item.text === '这是完整的实际回答。')?.index ?? -1;
+    const completed = rows.find((row) => row.type === 'event_msg' && (row.payload as Record<string, any>)?.type === 'task_complete');
+    const finalText = (completed?.payload as Record<string, any> | undefined)?.last_agent_message;
+    check('Codex tool summary is ordered before the actual answer', summaryIndex >= 0 && answerIndex > summaryIndex);
+    check('Codex marks the actual answer, not the tool summary, as final', finalText === '这是完整的实际回答。', String(finalText));
+    const finalItem = rows.find((row) => row.type === 'event_msg' && row.payload?.item?.type === 'AgentMessage' && row.payload.item.content?.some((block: Record<string, unknown>) => block.text === '这是完整的实际回答。'));
+    check('Codex reply carries the final_answer display phase', finalItem?.payload?.item?.phase === 'final_answer');
+    fs.appendFileSync(result.path, [
+      '（执行了 2 个操作：bash）',
+      '（工具调用：exec；缺少对应结果，输入与输出已省略）',
+    ].map((text) => JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] } })).join('\n') + '\n');
+    const reread = await new CodexReader().read(result.threadId);
+    const texts = reread.messages.flatMap((m) => m.role === 'assistant' ? m.blocks.filter((b) => b.type === 'text').map((b) => b.text) : []);
+    check('Codex reader never re-exports mirror presentation summaries as replies', texts.length === 1 && texts[0] === '这是完整的实际回答。', `${texts.length} text replies`);
+  } finally {
+    if (previousMode === undefined) delete process.env.SESSION_MIRROR_CODEX_TOOLS;
+    else process.env.SESSION_MIRROR_CODEX_TOOLS = previousMode;
+  }
+}
+
 function testSchemaRefusal(): void {
   const dir = home('broken-codex');
   const db = new DatabaseSync(path.join(dir, 'state_5.sqlite'));
@@ -368,6 +414,7 @@ const which = process.argv[2] ?? 'all';
 try {
   if (which === 'all' || which === 'locks') await testGroupLocks();
   if (which === 'all' || which === 'roundtrip') await testRoundTrip();
+  if (which === 'all' || which === 'codex-summary') await testCodexToolSummaryDoesNotHideAnswer();
   if (which === 'all' || which === 'schema') testSchemaRefusal();
   if (which === 'all' || which === 'zstd') testZstdFrames();
   if (which === 'all' || which === 'real') await testRealGroup();

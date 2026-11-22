@@ -8,22 +8,14 @@
 import type { Origin } from './ir.ts';
 import { canonicalize } from './ir.ts';
 import { Ledger } from './ledger.ts';
-import { missingMessages } from './ids.ts';
-import { ClaudeReader } from './adapters/claude.ts';
-import { CodexReader } from './adapters/codex.ts';
-import { DshReader } from './adapters/dsh.ts';
+import { missingMessages, messageFingerprint } from './ids.ts';
+import { readerFor } from './readers.ts';
 
 export interface TargetPlanSummary {
   origin: Origin;
   replica: boolean;
   missing: number;
   total: number;
-}
-
-function readerFor(origin: Origin) {
-  if (origin === 'codex') return new CodexReader();
-  if (origin === 'claude') return new ClaudeReader();
-  return new DshReader();
 }
 
 export async function planTargets(
@@ -39,13 +31,19 @@ export async function planTargets(
   for (const target of origins) {
     if (target === origin) continue;
     const replica = record?.replicas?.[target];
-    let missing = sourceMessages.length;
+    // Tools Codex cannot hold are settled, not "missing": the mirror records them
+    // as unrepresentable, and the page must not keep advertising them as pending.
+    const blocked = new Set(record?.unrepresentable?.[target] ?? []);
+    const expected = blocked.size
+      ? sourceMessages.filter((message) => !blocked.has(messageFingerprint(message)))
+      : sourceMessages;
+    let missing = expected.length;
     if (replica?.sessionId) {
       try {
         const targetConversation = await readerFor(target).read(replica.sessionId);
-        missing = missingMessages(canonicalize(targetConversation.messages), sourceMessages).length;
+        missing = missingMessages(canonicalize(targetConversation.messages), expected).length;
       } catch {
-        missing = sourceMessages.length;
+        missing = expected.length;
       }
     }
     out.push({

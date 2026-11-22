@@ -10,18 +10,10 @@ import { DatabaseSync } from 'node:sqlite';
 import type { Origin } from '../src/ir.ts';
 import { Ledger } from '../src/ledger.ts';
 import { HARNESSES, HARNESS_IDS } from '../src/registry.ts';
-import { ClaudeReader } from '../src/adapters/claude.ts';
-import { CodexReader } from '../src/adapters/codex.ts';
-import { DshReader } from '../src/adapters/dsh.ts';
+import { readerFor } from '../src/readers.ts';
 
 const ORIGINS: Origin[] = HARNESS_IDS;
 const LABELS: Record<string, string> = Object.fromEntries(HARNESSES.map((harness) => [harness.id, harness.label]));
-
-function readerFor(origin: Origin) {
-  if (origin === 'codex') return new CodexReader();
-  if (origin === 'claude') return new ClaudeReader();
-  return new DshReader();
-}
 
 export interface SessionRow {
   origin: Origin;
@@ -268,7 +260,7 @@ export async function listConversations(): Promise<{
         }
       }
     }
-    const present = Object.keys(replicas).length;
+    const writablePresent = Object.keys(replicas).filter((origin) => HARNESSES.some((harness) => harness.id === origin && harness.canWrite)).length;
     // Order by the replicas' own file times, never by when our last pass ran.
     conversations.push({
       key: `group:${record.groupId}`,
@@ -278,7 +270,7 @@ export async function listConversations(): Promise<{
       updatedAt: activity || record.updatedAt || now,
       replicas,
       projects: groupProjects,
-      aligned: present === ORIGINS.length,
+      aligned: writablePresent === HARNESSES.filter((harness) => harness.canWrite).length,
     });
   }
 
@@ -312,7 +304,8 @@ export async function listConversations(): Promise<{
   // Deterministic order: newest activity first, ties broken by title so a refresh
   // with identical data can never shuffle the list.
   conversations.sort((a, b) => b.updatedAt - a.updatedAt || a.title.localeCompare(b.title));
-  const aligned = conversations.filter((row) => row.aligned).length;
+  const writableCount = HARNESSES.filter((harness) => harness.canWrite).length;
+  const aligned = conversations.filter((row) => Object.keys(row.replicas).filter((origin) => HARNESSES.some((h) => h.id === origin && h.canWrite)).length === writableCount).length;
   const single = conversations.filter((row) => Object.keys(row.replicas).length === 1).length;
   return {
     harnesses: HARNESSES,

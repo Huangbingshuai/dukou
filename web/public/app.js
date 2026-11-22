@@ -408,7 +408,7 @@ function renderThread(conversation) {
 
   el.threadTools.replaceChildren();
 
-  const others = state.harnesses.filter((candidate) => candidate.id !== state.active);
+  const others = state.harnesses.filter((candidate) => candidate.id !== state.active && candidate.canWrite);
   // Nothing to send when the conversation is already everywhere — but saying so
   // inside the menu is clearer than a button that silently disappears.
   if (others.length === 0) return;
@@ -460,7 +460,7 @@ function renderThread(conversation) {
       }
     }
     // Two or more tools behind → one action instead of two round trips.
-    const behind = (plan ?? []).filter((entry) => entry.missing > 0);
+    const behind = (plan ?? []).filter((entry) => entry.missing > 0 && state.harnesses.find((h) => h.id === entry.origin)?.canWrite);
     if (behind.length > 1) {
       const action = document.createElement('button');
       action.type = 'button';

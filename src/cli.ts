@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 import type { Conversation, ConversationMeta, Origin, Reader } from './ir.ts';
 import { summarizeBlocks } from './ir.ts';
-import { ClaudeReader } from './adapters/claude.ts';
-import { CodexReader } from './adapters/codex.ts';
-import { DshReader } from './adapters/dsh.ts';
+import { readerFor as makeReader } from './readers.ts';
 import { writeClaude } from './writers/claude.ts';
 import { writeCodex } from './writers/codex.ts';
 import { writeDsh } from './writers/dsh.ts';
@@ -11,11 +9,11 @@ import { mirrorConversation } from './mirror.ts';
 import { canonicalize } from './ir.ts';
 import { Ledger } from './ledger.ts';
 import type { Origin as MirrorOrigin } from './ir.ts';
+import { harnessOf, HARNESS_IDS } from './registry.ts';
 
 const READERS: Record<Origin, () => Reader> = {
-  codex: () => new CodexReader(),
-  claude: () => new ClaudeReader(),
-  dsh: () => new DshReader(),
+  codex: () => makeReader('codex'), claude: () => makeReader('claude'), dsh: () => makeReader('dsh'),
+  kimi: () => makeReader('kimi'), zcode: () => makeReader('zcode'),
 };
 
 function arg(name: string): string | undefined {
@@ -106,6 +104,7 @@ async function commandExport(): Promise<void> {
   const id = arg('id');
   if (!id) throw new Error('--id is required');
   const target = arg('to');
+  if (!target || !harnessOf(target)?.canWrite) throw new Error(`--to must be a writable tool: ${HARNESS_IDS.filter((id) => harnessOf(id)?.canWrite).join(', ')}`);
   const conversation = await reader.read(id);
   if (target === 'claude') {
     const result = writeClaude(conversation, { home: arg('home') });
@@ -137,7 +136,7 @@ async function commandSync(): Promise<void> {
   const from = arg('from') as MirrorOrigin | undefined;
   const id = arg('id');
   if (!from || !id) throw new Error('--from and --id are required');
-  const targets = (arg('to') ?? 'codex,claude,dsh')
+  const targets = (arg('to') ?? HARNESS_IDS.filter((id) => harnessOf(id)?.canWrite).join(','))
     .split(',')
     .map((value) => value.trim())
     .filter(Boolean) as MirrorOrigin[];
@@ -145,6 +144,8 @@ async function commandSync(): Promise<void> {
     codex: arg('codex-home'),
     claude: arg('claude-home'),
     dsh: arg('dsh-home'),
+    kimi: arg('kimi-home'),
+    zcode: arg('zcode-home'),
     backupDir: arg('backup'),
     dryRun: flag('dry-run'),
     ledgerPath: arg('ledger'),
@@ -167,7 +168,7 @@ async function commandDoctor(): Promise<void> {
     const rows: string[] = [];
     let leader = { origin: '', count: 0 };
     const counts: Record<string, number> = {};
-    for (const origin of ['codex', 'claude', 'dsh'] as const) {
+    for (const origin of HARNESS_IDS) {
       const ref = group.replicas[origin];
       if (!ref) {
         rows.push(`${origin} —`);
@@ -191,7 +192,12 @@ async function commandDoctor(): Promise<void> {
 async function commandStats(): Promise<void> {
   for (const [name, make] of Object.entries(READERS)) {
     const started = Date.now();
-    const rows = await make().list();
+    let rows: ConversationMeta[];
+    try { rows = await make().list(); }
+    catch (error) {
+      console.log(`${name.padEnd(7)} unavailable  ${(error as Error).message}`);
+      continue;
+    }
     const total = rows.reduce((sum, row: ConversationMeta) => sum + 1, 0);
     console.log(
       `${name.padEnd(7)} ${String(total).padStart(4)} sessions  ${String(
@@ -210,7 +216,7 @@ try {
   else if (command === 'doctor') await commandDoctor();
   else if (command === 'stats') await commandStats();
   else {
-    console.log('usage: cli.ts <list|dump|export|sync|doctor|stats> [--from codex|claude|dsh] [--id <id>] [--limit n]');
+    console.log('usage: cli.ts <list|dump|export|sync|doctor|stats> [--from codex|claude|dsh|kimi|zcode] [--id <id>] [--limit n]');
     process.exitCode = 2;
   }
 } catch (error) {

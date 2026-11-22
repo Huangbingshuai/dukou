@@ -1,8 +1,6 @@
 import { canonicalize } from './ir.ts';
 import type { Origin } from './ir.ts';
-import { ClaudeReader } from './adapters/claude.ts';
-import { CodexReader } from './adapters/codex.ts';
-import { DshReader } from './adapters/dsh.ts';
+import { readerFor } from './readers.ts';
 
 /**
  * Pre-flight check for a migration.
@@ -12,7 +10,7 @@ import { DshReader } from './adapters/dsh.ts';
  * enforce cannot wait for an app restart.
  */
 export async function assertMigratable(origin: Origin, sessionId: string): Promise<number> {
-  const reader = origin === 'codex' ? new CodexReader() : origin === 'claude' ? new ClaudeReader() : new DshReader();
+  const reader = readerFor(origin);
   const conversation = await reader.read(sessionId);
   const count = canonicalize(conversation.messages).length;
   if (count === 0) {

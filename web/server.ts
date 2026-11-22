@@ -16,9 +16,7 @@ import { sha256 } from '../src/attachments.ts';
 import { canonicalize } from '../src/ir.ts';
 import type { Conversation, Message, Origin } from '../src/ir.ts';
 import { messageText } from '../src/ir.ts';
-import { ClaudeReader } from '../src/adapters/claude.ts';
-import { CodexReader } from '../src/adapters/codex.ts';
-import { DshReader } from '../src/adapters/dsh.ts';
+import { readerFor } from '../src/readers.ts';
 import { mirrorConversation } from '../src/mirror.ts';
 import { syncGroups } from '../src/groups.ts';
 import { Ledger } from '../src/ledger.ts';
@@ -51,12 +49,6 @@ const LABELS: Record<string, string> = Object.fromEntries(HARNESSES.map((harness
 
 function labelOf(id: string): string {
   return LABELS[id] ?? harnessOf(id)?.label ?? id;
-}
-
-function readerFor(origin: Origin) {
-  if (origin === 'codex') return new CodexReader();
-  if (origin === 'claude') return new ClaudeReader();
-  return new DshReader();
 }
 
 function isOrigin(value: unknown): value is Origin {
@@ -232,16 +224,19 @@ async function runPass(): Promise<void> {
 }
 
 /**
- * Watches the three stores and runs one debounced pass after a change, so a new
+ * Watches the native stores and runs one debounced pass after a change, so a new
  * message shows up in the other harnesses about a second after it is written.
  * The interval is only a safety net for a missed file event.
  */
 function startWatching(): () => void {
   const home = process.env.HOME ?? os.homedir();
   const roots = [
-    path.join(home, '.claude', 'projects'),
-    path.join(home, '.codex', 'sessions'),
-    path.join(home, '.dsh', 'sessions'),
+    path.join(process.env.CLAUDE_HOME ?? path.join(home, '.claude'), 'projects'),
+    path.join(process.env.CODEX_HOME ?? path.join(home, '.codex'), 'sessions'),
+    path.join(process.env.DSH_HOME ?? path.join(home, '.dsh'), 'sessions'),
+    path.join(process.env.KIMI_CODE_HOME ?? path.join(home, '.kimi-code'), 'sessions'),
+    path.join(process.env.KIMI_CODE_HOME ?? path.join(home, '.kimi-code'), 'server', 'instances'),
+    path.join(process.env.ZCODE_HOME ?? path.join(home, '.zcode'), 'cli', 'db'),
   ];
   let scheduled: NodeJS.Timeout | undefined;
   const schedule = () => {
@@ -403,6 +398,9 @@ const server = http.createServer(async (req, res) => {
       }
       if (body.sourceOrigin === body.target) {
         return json(res, 400, { error: 'source and target are the same harness' });
+      }
+      if (!harnessOf(body.target)?.canWrite) {
+        return json(res, 400, { error: `${labelOf(body.target)} 当前仅支持读取，不能作为迁移目标` });
       }
       try {
         await assertMigratable(body.sourceOrigin, body.sourceId);
@@ -629,7 +627,7 @@ const stopWatching = startWatching();
 server.listen(PORT, HOST, () => {
   console.log(`session-mirror web on http://${HOST}:${PORT}`);
   console.log(`ledger: ${new Ledger().file}`);
-  console.log('watching ~/.claude, ~/.codex, ~/.dsh for changes');
+  console.log('watching Claude, Codex, DSH, Kimi Code and ZCode stores for changes');
   const writable = probeLedgerWrite();
   if (writable.ok) console.log('ledger writable: yes');
   else console.log(`ledger writable: NO — ${writable.error}\n（迁移会在保存台账时失败；请在工作区外或关闭沙箱启动）`);

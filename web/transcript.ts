@@ -9,9 +9,7 @@
 import type { Origin } from '../src/ir.ts';
 import { canonicalize } from '../src/ir.ts';
 import { sha256 } from '../src/attachments.ts';
-import { ClaudeReader } from '../src/adapters/claude.ts';
-import { CodexReader } from '../src/adapters/codex.ts';
-import { DshReader } from '../src/adapters/dsh.ts';
+import { readerFor } from '../src/readers.ts';
 
 export interface TranscriptLine {
   role: string;
@@ -27,12 +25,6 @@ export interface TranscriptImage {
   hash: string;
   mime: string;
   base64: string;
-}
-
-function readerFor(origin: Origin) {
-  if (origin === 'codex') return new CodexReader();
-  if (origin === 'claude') return new ClaudeReader();
-  return new DshReader();
 }
 
 export async function buildTranscript(

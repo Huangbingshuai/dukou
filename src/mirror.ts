@@ -1,15 +1,15 @@
-import type { Conversation, Origin, Reader } from './ir.ts';
+import type { Conversation, Origin } from './ir.ts';
 import { canonicalize } from './ir.ts';
 import { missingMessages, messageFingerprint } from './ids.ts';
 import { withGroupLock } from './lock.ts';
 import { Ledger, type MirrorRecord, type ReplicaRef } from './ledger.ts';
 import { uuidV5 } from './ids.ts';
-import { ClaudeReader } from './adapters/claude.ts';
-import { CodexReader } from './adapters/codex.ts';
-import { DshReader } from './adapters/dsh.ts';
+import { readerFor } from './readers.ts';
+import { harnessOf } from './registry.ts';
 import { appendClaude, writeClaude } from './writers/claude.ts';
 import { appendCodex, writeCodex } from './writers/codex.ts';
 import { appendDsh, writeDsh } from './writers/dsh.ts';
+import { appendZcode, writeZcode } from './writers/zcode.ts';
 
 /**
  * The mirror engine.
@@ -24,6 +24,8 @@ export interface MirrorHomes {
   codex?: string;
   claude?: string;
   dsh?: string;
+  kimi?: string;
+  zcode?: string;
   /** Where pre-write database/registry backups go. */
   backupDir?: string;
 }
@@ -55,12 +57,6 @@ export interface MirrorResult {
   targets: TargetPlan[];
 }
 
-function makeReader(origin: Origin): Reader {
-  if (origin === 'codex') return new CodexReader();
-  if (origin === 'claude') return new ClaudeReader();
-  return new DshReader();
-}
-
 export function groupIdFor(origin: Origin, sessionId: string): string {
   return uuidV5(`mirror-group:${origin}:${sessionId}`);
 }
@@ -77,10 +73,14 @@ function applyHomes(options: MirrorOptions): () => void {
     CODEX_HOME: process.env.CODEX_HOME,
     CLAUDE_HOME: process.env.CLAUDE_HOME,
     DSH_HOME: process.env.DSH_HOME,
+    KIMI_CODE_HOME: process.env.KIMI_CODE_HOME,
+    ZCODE_HOME: process.env.ZCODE_HOME,
   };
   if (options.codex) process.env.CODEX_HOME = options.codex;
   if (options.claude) process.env.CLAUDE_HOME = options.claude;
   if (options.dsh) process.env.DSH_HOME = options.dsh;
+  if (options.kimi) process.env.KIMI_CODE_HOME = options.kimi;
+  if (options.zcode) process.env.ZCODE_HOME = options.zcode;
   return () => {
     for (const [key, value] of Object.entries(saved)) {
       if (value === undefined) delete process.env[key];
@@ -121,7 +121,7 @@ async function runMirror(
   targets: Origin[],
   options: MirrorOptions,
 ): Promise<MirrorResult> {
-  const source = await makeReader(sourceOrigin).read(sourceId);
+  const source = await readerFor(sourceOrigin).read(sourceId);
   const sourceMessages = canonicalize(source.messages);
   // An empty stub is a real thing in all three stores (a draft, an aborted start).
   // Copying it would create empty shells that look like broken imports, so refuse.
@@ -153,6 +153,10 @@ async function runMirror(
   for (const target of targets) {
     if (target === sourceOrigin) {
       plans.push({ origin: target, action: 'skip', missing: 0 });
+      continue;
+    }
+    if (!harnessOf(target)?.canWrite) {
+      plans.push({ origin: target, action: 'skip', missing: sourceMessages.length, error: `${target} 目前仅支持读取，不能作为迁移目标` });
       continue;
     }
     // npm-style dynamic dispatch keeps the writer modules independent.
@@ -190,7 +194,7 @@ async function runMirror(
 
       let existing;
       try {
-        existing = await makeReader(target).read(ref.sessionId);
+        existing = await readerFor(target).read(ref.sessionId);
       } catch (error) {
         if (!isMissingReplica(error, target, ref.sessionId)) throw error;
       }
@@ -290,7 +294,7 @@ async function recordBlocked(
   sourceMessages: import('./ir.ts').Message[],
 ): Promise<void> {
   if (!plan.sessionId) return;
-  const replica = await makeReader(target)
+  const replica = await readerFor(target)
     .read(plan.sessionId)
     .catch(() => undefined);
   if (!replica) return;
@@ -309,6 +313,7 @@ interface WriteOutcome {
 }
 
 function writeFor(origin: Origin): (conversation: Conversation, options: MirrorOptions) => WriteOutcome {
+  if (!harnessOf(origin)?.canWrite) throw new Error(`${origin} is read-only and cannot be a migration target`);
   if (origin === 'claude') {
     return (conversation, options) => {
       const result = writeClaude(conversation, { home: options.claude });
@@ -321,6 +326,12 @@ function writeFor(origin: Origin): (conversation: Conversation, options: MirrorO
       return { sessionId: result.threadId, path: result.path };
     };
   }
+  if (origin === 'zcode') {
+    return (conversation, options) => {
+      const result = writeZcode(conversation, { home: options.zcode, backupDir: options.backupDir });
+      return { sessionId: result.sessionId, path: result.path };
+    };
+  }
   return (conversation, options) => {
     const result = writeDsh(conversation, { home: options.dsh, backupDir: options.backupDir });
     return { sessionId: result.sessionId, path: result.path };
@@ -330,6 +341,7 @@ function writeFor(origin: Origin): (conversation: Conversation, options: MirrorO
 function appendFor(
   origin: Origin,
 ): (conversation: Conversation, sessionId: string, options: MirrorOptions) => { path: string } {
+  if (!harnessOf(origin)?.canWrite) throw new Error(`${origin} is read-only and cannot be appended to`);
   if (origin === 'claude') {
     return (conversation, sessionId, options) =>
       appendClaude(conversation, sessionId, { home: options.claude });
@@ -337,6 +349,10 @@ function appendFor(
   if (origin === 'codex') {
     return (conversation, sessionId, options) =>
       appendCodex(conversation, sessionId, { home: options.codex, backupDir: options.backupDir });
+  }
+  if (origin === 'zcode') {
+    return (conversation, sessionId, options) =>
+      appendZcode(conversation, sessionId, { home: options.zcode, backupDir: options.backupDir });
   }
   return (conversation, sessionId, options) =>
     appendDsh(conversation, sessionId, { home: options.dsh, backupDir: options.backupDir });

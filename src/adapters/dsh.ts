@@ -164,6 +164,11 @@ function isAttachmentMarker(text: unknown): boolean {
   return typeof text === 'string' && /^<image name=\[Image #\d+\] path="[^"]+">$/.test(text.trim());
 }
 
+/** Presentation-only tool summary written by the Codex mirror; never conversation. */
+function isToolSummary(text: unknown): boolean {
+  return typeof text === 'string' && /^(?:（执行了 \d+ 个操作|（工具调用：|调用工具：|Script (?:completed|failed)\s+Wall time|Companion Page snapshot part \d+ of \d+:)/.test(text.trim());
+}
+
 function contentBlocks(content: unknown, includeToolCalls = false): Block[] {
   if (!Array.isArray(content)) return [];
   const blocks: Block[] = [];
@@ -174,6 +179,8 @@ function contentBlocks(content: unknown, includeToolCalls = false): Block[] {
         // Older mirror builds wrote Codex's `<image ... path>` marker as a user
         // message of its own; it is bookkeeping, never part of the conversation.
         if (isAttachmentMarker(block.text)) break;
+        if (isToolSummary(block.text)) break;
+        if (typeof block.text === 'string' && block.text.trim().startsWith('# AGENTS.md instructions') && block.text.includes('<environment_context>')) break;
         if (typeof block.text === 'string' && block.text.trim()) blocks.push({ type: 'text', text: block.text });
         break;
       case 'reasoning':

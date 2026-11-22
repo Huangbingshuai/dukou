@@ -18,14 +18,17 @@ export interface Harness {
   color: string;
   /** Where this harness keeps its conversations, for the detail line. */
   store: string;
+  /** Whether this tool has a verified, safe conversation writer. */
+  canWrite: boolean;
 }
 
 export const HARNESSES: Harness[] = [
-  // `label` is the coding tool's own name, not the vendor or the model family:
-  // these are three agent harnesses, and that is what a user picks between.
-  { id: 'codex', label: 'Codex', short: 'CX', color: '#111111', store: '~/.codex' },
-  { id: 'claude', label: 'Claude Code', short: 'CL', color: '#d97757', store: '~/.claude' },
-  { id: 'dsh', label: 'DeepSeek Harness', short: 'DSH', color: '#4d6bfe', store: '~/.dsh' },
+  // `label` is the coding tool's own name, not the vendor or the model family.
+  { id: 'codex', label: 'Codex', short: 'CX', color: '#111111', store: '~/.codex', canWrite: true },
+  { id: 'claude', label: 'Claude Code', short: 'CL', color: '#d97757', store: '~/.claude', canWrite: true },
+  { id: 'dsh', label: 'DeepSeek Harness', short: 'DSH', color: '#4d6bfe', store: '~/.dsh', canWrite: true },
+  { id: 'kimi', label: 'Kimi Code', short: 'KI', color: '#7357ff', store: '~/.kimi-code', canWrite: false },
+  { id: 'zcode', label: 'ZCode', short: 'ZC', color: '#11a37f', store: '~/.zcode', canWrite: true },
 ];
 
 export const HARNESS_IDS: Origin[] = HARNESSES.map((harness) => harness.id);

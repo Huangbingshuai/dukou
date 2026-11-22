@@ -122,7 +122,12 @@ function textOfContent(content: unknown): string {
 
 function isSyntheticUserText(text: string): boolean {
   const trimmed = text.trimStart();
-  return SYNTHETIC_USER_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
+  return SYNTHETIC_USER_PREFIXES.some((prefix) => trimmed.startsWith(prefix)) ||
+    (trimmed.startsWith('# AGENTS.md instructions') && trimmed.includes('<environment_context>'));
+}
+
+function isMirrorPresentationText(text: string): boolean {
+  return /^(?:（执行了 \d+ 个操作|（工具调用：|调用工具：|Script (?:completed|failed)\s+Wall time|Companion Page snapshot part \d+ of \d+:)/.test(text.trim());
 }
 
 /** Maps one `response_item` payload into IR blocks, or nothing when it is runtime noise. */
@@ -156,7 +161,7 @@ function mapResponseItem(payload: Record<string, unknown>): { role: Message['rol
       }
       if (role === 'assistant') {
         const blocks: Block[] = [];
-        if (text.trim()) blocks.push({ type: 'text', text });
+        if (text.trim() && !isMirrorPresentationText(text)) blocks.push({ type: 'text', text });
         if (Array.isArray(payload.content)) {
           for (const raw of payload.content as Array<Record<string, unknown>>) {
             if (raw.type !== 'output_image') continue;
@@ -231,6 +236,7 @@ function mapProjectedItem(item: Record<string, unknown>): Message[] {
     }
     case 'agentMessage': {
       const text = typeof item.text === 'string' ? item.text : '';
+      if (isMirrorPresentationText(text)) return [];
       return text.trim() ? [{ id, role: 'assistant', blocks: [{ type: 'text', text }] }] : [];
     }
     case 'reasoning': {

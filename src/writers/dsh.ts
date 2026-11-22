@@ -212,7 +212,14 @@ function buildEvents(conversation: Conversation, sessionId: string, options: Bui
             message: {
               id: message.id || `mirror-call-text-${messageIndex}`,
               role: 'assistant',
-              content: [{ type: 'text', text: `调用工具：${block.name}\n${block.input}` }],
+              // A wall of tool input in the transcript is unreadable and, once
+              // mirrored back, looks like the assistant is pasting scripts.
+              content: [
+                {
+                  type: 'text',
+                  text: `（工具调用：${block.name}；缺少对应结果，输入与输出已省略）`,
+                },
+              ],
               source: { kind: 'model', provider: 'session-mirror', model: 'mirrored' },
             },
             stream: [],
@@ -272,7 +279,12 @@ function buildEvents(conversation: Conversation, sessionId: string, options: Bui
             message: {
               id: typeof message.id === 'string' && message.id.length > 0 ? message.id : crypto.randomUUID(),
               role: 'assistant',
-              content: [{ type: 'text', text: block.output }],
+              content: [
+                {
+                  type: 'text',
+                  text: `（工具输出：${typeof block.output === 'string' ? block.output.length : 0} 字符；缺少对应调用，已省略）`,
+                },
+              ],
               source: { kind: 'model', provider: 'session-mirror', model: 'mirrored' },
             },
             stream: [],

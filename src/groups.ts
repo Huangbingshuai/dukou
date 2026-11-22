@@ -4,9 +4,8 @@ import { Ledger, type MirrorRecord, type ReplicaRef } from './ledger.ts';
 import { mirrorConversation, type MirrorOptions } from './mirror.ts';
 import { withGroupLock } from './lock.ts';
 import { missingMessages } from './ids.ts';
-import { ClaudeReader } from './adapters/claude.ts';
-import { CodexReader } from './adapters/codex.ts';
-import { DshReader } from './adapters/dsh.ts';
+import { readerFor } from './readers.ts';
+import { harnessOf } from './registry.ts';
 
 /**
  * One realtime pass over every known mirror group.
@@ -25,21 +24,19 @@ export interface GroupSyncResult {
   error?: string;
 }
 
-function readerFor(origin: Origin) {
-  if (origin === 'codex') return new CodexReader();
-  if (origin === 'claude') return new ClaudeReader();
-  return new DshReader();
-}
-
 function applyHomes(options: MirrorOptions): () => void {
   const saved = {
     CODEX_HOME: process.env.CODEX_HOME,
     CLAUDE_HOME: process.env.CLAUDE_HOME,
     DSH_HOME: process.env.DSH_HOME,
+    KIMI_CODE_HOME: process.env.KIMI_CODE_HOME,
+    ZCODE_HOME: process.env.ZCODE_HOME,
   };
   if (options.codex) process.env.CODEX_HOME = options.codex;
   if (options.claude) process.env.CLAUDE_HOME = options.claude;
   if (options.dsh) process.env.DSH_HOME = options.dsh;
+  if (options.kimi) process.env.KIMI_CODE_HOME = options.kimi;
+  if (options.zcode) process.env.ZCODE_HOME = options.zcode;
   return () => {
     for (const [key, value] of Object.entries(saved)) {
       if (value === undefined) delete process.env[key];
@@ -113,7 +110,7 @@ async function converge(record: MirrorRecord, options: MirrorOptions): Promise<G
   };
 
   const leaderOrigin = leader.origin;
-  const leaderTargets = (Object.keys(record.replicas) as Origin[]).filter((origin) => origin !== leaderOrigin);
+  const leaderTargets = (Object.keys(record.replicas) as Origin[]).filter((origin) => origin !== leaderOrigin && harnessOf(origin)?.canWrite);
   const forward = await mirrorConversation(leaderOrigin, leader.sessionId, leaderTargets, {
     ...options,
     locked: true,

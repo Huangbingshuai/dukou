@@ -13,8 +13,10 @@
     "check": "node --experimental-strip-types --check src/cli.ts",
     "doctor": "node src/cli.ts doctor",
     "regression": "node scripts/regression.ts",
+    "regression:new-harnesses": "node scripts/new-harnesses-regression.ts",
     "accept": "sh scripts/accept.sh",
     "web": "sh scripts/web.sh",
-    "web-browser": "node scripts/web-browser-test.ts"
+    "web-browser": "node scripts/web-browser-test.ts",
+    "web-browser:zcode": "sh scripts/web-browser-zcode.sh"
   }
 }

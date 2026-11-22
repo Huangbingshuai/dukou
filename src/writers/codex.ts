@@ -372,8 +372,69 @@ function buildRollout(
     turnOpen = false;
   };
 
-  canonicalize(conversation.messages).forEach((message, index) => {
+  const summariseTools = process.env.SESSION_MIRROR_CODEX_TOOLS === 'summary';
+  // One summary per burst of tool-only turns, not one per call.
+  let pendingTools = 0;
+  const pendingNames = new Set<string>();
+  let pendingAt = 0;
+  const flushToolSummary = () => {
+    if (pendingTools === 0) return;
+    const names = [...pendingNames].slice(0, 3).join('、');
+    const summary = `（执行了 ${pendingTools} 个操作${names ? `：${names}` : ''}）`;
+    item += 1;
+    push(pendingAt, 'event_msg', {
+      type: 'item_completed',
+      thread_id: threadId,
+      turn_id: `mirror-turn-${turn}`,
+      item: { type: 'AgentMessage', id: `item-${item}`, content: [{ type: 'Text', text: summary }] },
+      completed_at_ms: pendingAt,
+    });
+    push(pendingAt, 'response_item', {
+      type: 'message',
+      id: `msg_${crypto.randomUUID()}`,
+      role: 'assistant',
+      content: [{ type: 'output_text', text: summary }],
+    });
+    lastAgentText = summary;
+    pendingTools = 0;
+    pendingNames.clear();
+  };
+
+  const messages = canonicalize(conversation.messages);
+  const finalTextIndices = new Set<number>();
+  let foundFinalText = false;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === 'user') foundFinalText = false;
+    else if (!foundFinalText && message.role === 'assistant' && message.blocks.some((block) => block.type === 'text' && block.text.trim())) {
+      finalTextIndices.add(index);
+      foundFinalText = true;
+    }
+  }
+  messages.forEach((message, index) => {
     const time = message.time ?? start + index * 1000;
+    if (summariseTools && message.role === 'assistant') {
+      const calls = message.blocks.filter((block) => block.type === 'toolCall');
+      const onlyToolTraffic = message.blocks.every((block) => block.type === 'toolCall' || block.type === 'toolResult');
+      if (onlyToolTraffic) {
+        pendingTools += calls.length;
+        for (const call of calls) pendingNames.add(call.name);
+        pendingAt = time;
+        return;
+      }
+    }
+    if (message.role === 'user') flushToolSummary();
+    // Tool-only turns are summarized for readability, but the summary must stay
+    // before the next user-facing assistant response. If it is deferred until
+    // the following user message, Codex treats that summary as the turn's final
+    // AgentMessage and can hide the actual answer in the conversation view.
+    if (
+      summariseTools &&
+      message.role === 'assistant' &&
+      message.blocks.some((block) => block.type === 'text' || block.type === 'image')
+    ) {
+      flushToolSummary();
+    }
     if (message.role === 'user') {
       closeTurn(time);
       openTurn(time);
@@ -386,6 +447,7 @@ function buildRollout(
     // block is mapped independently instead of returning after the first kind.
     const role = message.role === 'assistant' ? 'assistant' : 'user';
     const content: Record<string, unknown>[] = [];
+
     for (const block of message.blocks) {
       if (block.type === 'text' || block.type === 'image') {
         const mapped = messageContent(block, role);
@@ -398,6 +460,7 @@ function buildRollout(
         });
       } else if (block.type === 'toolCall') {
         item += 1;
+        if (summariseTools) continue;
         push(time, 'response_item', {
           type: 'function_call',
           name: block.name,
@@ -405,6 +468,7 @@ function buildRollout(
           call_id: block.callId || `call-${item}`,
         });
       } else if (block.type === 'toolResult') {
+        if (summariseTools) continue;
         const output = block.images?.some((image) => image.data)
           ? [
               ...(block.output ? [{ type: 'input_text', text: block.output }] : []),
@@ -454,7 +518,7 @@ function buildRollout(
                   return mapped;
                 })(),
               }
-            : { type: 'AgentMessage', id: `item-${item}`, content: [{ type: 'Text', text }] },
+            : { type: 'AgentMessage', id: `item-${item}`, content: [{ type: 'Text', text }], phase: finalTextIndices.has(index) ? 'final_answer' : 'commentary' },
         completed_at_ms: time,
       });
       push(time, 'response_item', {
@@ -462,12 +526,15 @@ function buildRollout(
         id: `msg_${crypto.randomUUID()}`,
         role: message.role,
         content,
+        ...(message.role === 'assistant' ? { phase: finalTextIndices.has(index) ? 'final_answer' : 'commentary' } : {}),
       });
       if (message.role === 'assistant' && text) lastAgentText = text;
     }
   });
 
-  closeTurn(conversation.messages.at(-1)?.time ?? start + conversation.messages.length * 1000);
+  flushToolSummary();
+  const lastTime = conversation.messages.at(-1)?.time ?? start + conversation.messages.length * 1000;
+  closeTurn(lastTime);
   return rows;
 }
 
